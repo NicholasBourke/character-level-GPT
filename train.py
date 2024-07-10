@@ -1,14 +1,6 @@
-import math
 import time
-import json
-import numpy as np
-from dataclasses import dataclass
-
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 
@@ -18,45 +10,68 @@ def min_sec(t):
     return f"{min:2.0f}:{sec:2.0f}"
 
 
-def get_batch(split, data_dir, L, B):
+def get_batch(split, data_dir, context_length, batch_size):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     databytes = open(data_dir+split, "rb").read()
-    data = np.array(list(databytes))
+    data = torch.tensor(list(databytes)).to(device)
 
-    ix = torch.randint(len(data) - L, (B,))
-    x = torch.stack([torch.from_numpy((data[i:i+L]).astype(np.int64)) for i in ix])
+    ix = torch.randint(data.size(0) - context_length, (batch_size,))
+    x = torch.stack([data[i: i + context_length] for i in ix])
 
     if split == "train":
-        y = torch.stack([torch.from_numpy((data[i+1:i+1+L]).astype(np.int64)) for i in ix])
+        y = torch.stack([data[i + 1: i + 1 + context_length] for i in ix])
 
     if split in ("test", "val"):
-        y = torch.tensor([data[i+L] for i in ix]).to(int)
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    x, y = x.to(device), y.to(device)
+        y = [data[i + context_length] for i in ix].to(int)
 
     return x, y
 
 
-def train_epoch(model, optimizer, scheduler, cfg, data_dir, load_step=0, save_path=None):
+def create_dataloader(split, data_dir, context_length, batch_size):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    databytes = open(f"{data_dir}/{split}", "rb").read()
+    data = torch.tensor(list(databytes)).to(device)
+
+    n = data.size()[0] - context_length
+    r = n % batch_size
+    m = int((n-r)/batch_size)
+
+    dataloader = [
+        (torch.stack([data[k*batch_size+i: k*batch_size + i + context_length] for i in range(batch_size)]),
+         data[k*batch_size + context_length: k*batch_size + context_length + batch_size])
+    for k in range(m)]
+    
+    if r > 0:
+        dataloader.append(
+            (torch.stack([data[n - r + i: n - r + i + context_length] for i in range(r)]),
+             data[-r:])
+        )
+
+    return dataloader
+
+
+def training(model, optimizer, scheduler, cfg, data_dir, save_dir, checkpoint=None):
+
+    if checkpoint:
+        model.load_state_dict(checkpoint["model"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        scheduler.load_state_dict(checkpoint["scheduler"])
+        tracking = checkpoint["tracking"]
+        start = checkpoint["step_count"]
+    else:
+        tracking = {"learning rate": [], "momentum": [], "train loss": [], "val loss": [], "accuracy": []}
+        start = 0
 
     model.train()
 
-    tracking = {
-        "lr": [],
-        "mtm": [],
-        "train_loss": [],
-        "val_loss": [],
-        "acc": []
-    }
-
     t0 = time.time()
-    for step in range(cfg.epoch_steps):
-
+    for step in range(start, start + cfg.epoch_steps):
         x, y = get_batch("train", data_dir, model.cfg.L, cfg.bsz)
         logits = model(x)
-        tr_loss = F.cross_entropy(logits.view(-1, model.cfg.K), y.view(-1))
-        tr_loss.backward()
+        train_loss = F.cross_entropy(logits.view(-1, model.cfg.K), y.view(-1))
+        train_loss.backward()
         optimizer.step()
 
         lr = optimizer.param_groups[0]["lr"]
@@ -65,54 +80,43 @@ def train_epoch(model, optimizer, scheduler, cfg, data_dir, load_step=0, save_pa
         scheduler.step()
         optimizer.zero_grad()
 
-        if (step+1) % cfg.eval_steps == 0:
-            tracking["lr"].append(lr)
-            tracking["mtm"].append(mtm)
-            tracking["train_loss"].append(tr_loss.item())
+        if (step+1) % cfg.eval_step == 0:
+            tracking["learning rate"].append(lr)
+            tracking["momentum"].append(mtm)
+            tracking["train loss"].append(train_loss.item())
 
             model.eval()
-            ev_loss_total = 0.0
+            val_loss_total = 0.0
             acc_total = 0.0
             for _ in range(cfg.eval_steps):
                 x, y = get_batch("val", data_dir, model.cfg.L, cfg.bsz)
                 logits = model(x)
-                ev_loss = F.cross_entropy(logits[:, -1, :], y)
-                ev_loss_total += ev_loss.item()
+                val_loss = F.cross_entropy(logits[:, -1, :], y)
+                val_loss_total += val_loss.item()
 
                 pred = logits[:, -1, :].argmax(dim=1)
                 acc = torch.sum(torch.where(pred == y, 1, 0)).item() / y.size(0)
                 acc_total += acc
 
-            tracking["val_loss"].append(ev_loss_total / cfg.eval_steps)
-            tracking["acc"].append(acc_total / cfg.eval_steps)
+            tracking["val loss"].append(val_loss_total / cfg.eval_steps)
+            tracking["accuracy"].append(acc_total / cfg.eval_steps)
 
             elapsed = time.time()-t0
-            print(f"[{min_sec(elapsed)}] {step + load_step + 1}/{load_step + cfg.epoch_steps}: loss = {tr_loss:.3f}")
+            print(f"[{min_sec(elapsed)}] {step + 1}/{start + cfg.epoch_steps}: loss = {train_loss:.3f}")
 
             model.train()
 
         if (step+1) % cfg.save_step == 0:
-            torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict()}, f"{save_path}/{load_step + step + 1}.pth")
+            torch.save({
+                "step_count": step + 1,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "tracking": tracking
+            },f"{save_dir}/{step + 1}.pth")
             print("MODEL SAVED")
 
     return tracking
-
-
-def create_dataloader(split, data_dir, L, B):
-    databytes = open(f"{data_dir}/{split}", "rb").read()
-    data = torch.tensor(list(databytes))
-
-    n = data.size()[0] - L
-    r = n % B
-    m = int((n-r)/B)
-
-    dataloader = [(torch.stack([data[k*B+i: k*B+i+L] for i in range(B)]),
-                data[k*B+L: k*B+L+B]) for k in range(m)]
-    
-    dataloader.append((torch.stack([data[n-r+i: n-r+i+L] for i in range(r)]),
-                    data[-r:]))
-
-    return dataloader
 
 
 def inference(dataloader, model, print_step):
