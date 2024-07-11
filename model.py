@@ -103,5 +103,3 @@ class CharGPT2(nn.Module):
                     nn.init.normal_(mod.weight, mean=0.0, std=0.02)
                 if mod.bias is not None: nn.init.zeros_(mod.bias)
 
-
-
