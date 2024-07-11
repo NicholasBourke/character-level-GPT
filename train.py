@@ -24,8 +24,6 @@ class TrainConfig:
     save_step: int = 800
 
 
-
-
 def min_sec(t):
     sec = t % 60
     min = (t-sec)/60
