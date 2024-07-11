@@ -1,6 +1,28 @@
 import time
 import torch
 import torch.nn.functional as F
+from dataclasses import dataclass
+from model import CharGPT
+
+@dataclass
+class ModelConfig:
+    L: int = 512            # context length
+    K: int = 256            # vocabulary size
+    D: int = 512            # model dimension (hidden vector size)
+    n_layer: int = 12
+    n_head: int = 2
+    dropout: float = 0.2
+    bias: bool = False
+
+@dataclass
+class TrainConfig:
+    bsz: int = 16
+    # eval_bsz: int = 128
+    total_steps: int = 48000
+    epoch_steps: int = 12000
+    eval_steps: int = 32
+    save_step: int = 800
+
 
 
 
@@ -23,7 +45,7 @@ def get_batch(split, data_dir, context_length, batch_size):
         y = torch.stack([data[i + 1: i + 1 + context_length] for i in ix])
 
     if split in ("test", "val"):
-        y = [data[i + context_length] for i in ix].to(int)
+        y = torch.stack([data[i + context_length] for i in ix]).to(int)
 
     return x, y
 
@@ -119,7 +141,7 @@ def training(model, optimizer, scheduler, cfg, data_dir, save_dir, checkpoint=No
     return tracking
 
 
-def inference(dataloader, model, print_step):
+def full_inference(dataloader, model, print_step):
     model.eval()
 
     loss_total = 0.0
@@ -142,3 +164,21 @@ def inference(dataloader, model, print_step):
 
     return loss_total / len(dataloader), acc_total / len(dataloader)
 
+
+def accuracy_test(params_dir, data_dir, batch_size, num_batches):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    mcfg = ModelConfig()
+    model = CharGPT(mcfg).to(device)
+    model.load_state_dict(torch.load(params_dir + "model_state_dict.pth"))
+    model.eval()
+
+    acc_total = 0.0
+    for _ in range(num_batches):
+        x, y = get_batch("test", data_dir, model.cfg.L, batch_size)
+        logits = model(x)
+        pred = logits[:, -1, :].argmax(dim=1)
+        acc = torch.sum(torch.where(pred == y, 1, 0)).item() / y.size(0)
+        acc_total += acc
+
+    print(f"Model was {acc_total / num_batches * 100:.2f} accurate over {batch_size * num_batches} random examples.")

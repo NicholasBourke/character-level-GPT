@@ -74,9 +74,9 @@ class Layer(nn.Module):
 
 
 
-class CharGPT2(nn.Module):
+class CharGPT(nn.Module):
     def __init__(self, cfg):
-        super(CharGPT2, self).__init__()
+        super(CharGPT, self).__init__()
         self.cfg = cfg
         self.embed = nn.Embedding(cfg.K, cfg.D)
         self.stack = nn.ModuleList([Layer(cfg) for _ in range(cfg.n_layer)])
