@@ -1,6 +1,6 @@
 # Character-Level GPT
 
-A character-level GPT model pre-trained on the enwik8 dataset. The aim was twofold; to code a transformer-based language model with minimal assistance from PyTorch; and to test training methods that were potentially effective with fewer iterations given the limited resources available, namely the 1cycle learning rate policy outlined in _Super-Convergence - Very Fast Training of Neural Networks Using Large Learning Rates_ (Smith & Topin, 2018). A character-level model was chosen for simplicity.
+A character-level GPT model pre-trained on the enwik8 dataset. The aim was twofold; to code a transformer-based language model with minimal assistance from PyTorch; and to test training methods that were potentially effective with fewer iterations given the limited resources available, namely the 1cycle learning rate policy outlined in _Super-Convergence - Very Fast Training of Neural Networks Using Large Learning Rates_ (Smith & Topin, 2018). A character-level model was chosen for a small vocabulary.
 
 The model architecture was largely based on GPT-2, as described in _Language Models are Unsupervised Multitask Learners_ (Radford et al, 2019), as well as the character-level model described in _Character-Level Language Modeling with Deeper Self-Attention_ (Al-Rfou et al, 2018). More details on the properties that were adopted from each of these models is given below. 
 
@@ -18,25 +18,26 @@ The model's configuration parameters (eg. context length, hidden vector dimensio
 
 ## Dataset
 
-The model was trained on the [enwik8](http://prize.hutter1.net/index.htm) dataset, in the manner of the unsupervised pre-training used for GPT-1, as described in _Improving Language Understanding by Generative Pre-Training_ (Radford et al, 2018). It consists of the first 100 millon characters of the English Wikipedia in XML format, from which sequences of characters were randomly chosen as contexts.
+The model was trained on the [enwik8](http://prize.hutter1.net/index.htm) dataset, in the same manner as the unsupervised pre-training used for GPT-1, as described in _Improving Language Understanding by Generative Pre-Training_ (Radford et al, 2018). The enwik8 dataset consists of the first 100 millon characters of the English Wikipedia in XML format, from which sequences of characters were randomly chosen as contexts.
 
 
 ## Training
 
-The model was trained over 48000 iterations using a T4 GPU (via Google Colab). Much of the training methodology was motivated by the limited computing resources available, the most significant example being the use of the 1cycle training policy. This attempts to make use of "super-convergence" by linearly increasing the learning rate to a value significantly higher than would usually be effective, and then decreasing over an equal number of iterations to the starting point. Usually the learning rate would then be decreased further at a slower rate, however this was omitted as it was not showing strong improvements when initally attempted.
+The model was trained over 48000 iterations using a T4 GPU (via Google Colab). Much of the training methodology was motivated by the limited computing resources available, the most significant example being the use of the 1cycle training policy. This attempts to make use of "super-convergence" by linearly increasing the learning rate to a value significantly higher than would usually be effective, and then decreasing over an equal number of iterations to the starting point. Usually there would then be more training with a more slowly decreasing learning rate, however this was omitted as it was not showing strong improvements when initally attempted.
 
-Stochastic gradient descent with momentum was used as the optimization algorthm, mainly to align with the research on the 1cycle policy. Momentum was varied in opposition to the learning rate, ie. decreased and then increased.
-
-The large learning rate reached during training acts as a regularizer, and so with dropout also adding regularization, a relatively small weight decay was used.
-
-The hyperparameter values were:
-learning rate   [0.0001, 0.1]
-momentum        [0.9, 0.8]
-weight decay    0.00001
+Stochastic gradient descent with momentum was used as the optimization algorthm, mainly to align with the research on the 1cycle policy. Momentum was varied in opposition to the learning rate, ie. decreased and then increased. The large learning rate reached during training acts as a regularizer, and so with dropout also adding regularization, a relatively small weight decay was used.
 
 Appropriate values for the minimum and maximum learning rates were determined with the learning rate range test as described in _Cyclical Learning Rates for Training Neural Networks_ (Smith, 2017), which requires training over a number of iterations while linearly increasing the learning rate between minimum and maximum values that are expected to be too extreme. Suitable minimum and maximum learning rates are determined by tracking the validation accuracy; as the point at which the accuracy begins to increase is a suitable minimum and the point at which the accuracy curve flattens is a suitable maximum.
 
-Momentum and weight decay values were determined by monitoring the validation loss and accuracy in the early stages of training over a range of values for each. It was clear early that relatively lower momentum values were needed, however the performance remained fairly even at a variety of weight decay values well into the training process, meaning multiple models were trained until it was clear that any of the remaining vlaues for weight decay were acceptable.
+Momentum and weight decay values were determined by monitoring the validation loss and accuracy in the early stages of training over a range of values for each. It was clear early that relatively lower momentum values were needed, however the performance remained fairly even at a variety of weight decay values well into the training process, meaning multiple models were trained until it was clear that any of the remaining values for weight decay were acceptable.
 
+Actual hyperparameter values are as follows:
+|hyperparameter | value(s) |
+|---|---|
+| learning rate [min, max] | [0.0001, 0.1] |
+| momentum [max, min] | [0.9, 0.8] |
+| weight decay | 0.00001 |
 
+The following plot tracks the training/validation bpc and validation accuracy over the course of the training. There are signs of overfitting in the later stages with the divergence between the training and validation bpcs, however the increasing validation accuracy shows that training was still effective over all iterations performed.
 
+![bpc and accuracy tracking](plot.png)
