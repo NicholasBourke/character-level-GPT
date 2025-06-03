@@ -13,8 +13,8 @@ params_dir and data_dir respectively.
 """
 
 
-params_dir = "parameters/"  # change to location of test dataset
-data_dir = "data/"          # change to location of model_state_dict.pth
+params_dir = "parameters/"  # change to location of model_state_dict.pth
+data_dir = "data/"          # change to location of test dataset
 context_length = 512
 batch_size = 16             
 num_batches = 1000
